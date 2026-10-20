@@ -12,6 +12,7 @@ const TARGET_MAPPING = {
   'macos-x86_64-apple-darwin-ffi': 'osx-x86',
   'windows-i686-pc-windows-msvc-ffi': 'win-x86',
   'windows-x86_64-pc-windows-msvc-ffi': 'win-x64',
+  'windows-aarch64-pc-windows-msvc-ffi': 'win-arm64',
   'debian-aarch64-unknown-linux-gnu-ffi': 'linux-arm64',
   'debian-x86_64-unknown-linux-gnu-ffi': 'linux-x64',
 };

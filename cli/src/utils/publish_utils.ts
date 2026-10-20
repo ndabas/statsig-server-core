@@ -22,6 +22,15 @@ import { Octokit } from 'octokit';
 
 import { getRootVersion } from './toml_utils.js';
 
+// Targets that are only built where a suitable runner exists (Windows ARM64 is
+// filtered out of private-repo builds in .github/build_plan.py). Publishers
+// ship these when their binaries are present instead of requiring them.
+export const OPTIONAL_TARGETS = ['aarch64-pc-windows-msvc'];
+
+export function isOptionalTarget(name: string): boolean {
+  return OPTIONAL_TARGETS.some((target) => name.includes(target));
+}
+
 const ASSET_MAPPING = {
   // macOS
   'aarch64-apple-darwin': {

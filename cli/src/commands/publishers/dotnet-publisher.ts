@@ -4,6 +4,7 @@ import {
   getRootedPath,
   listFiles,
 } from '@/utils/file_utils.js';
+import { isOptionalTarget } from '@/utils/publish_utils.js';
 import { Log } from '@/utils/terminal_utils.js';
 import * as fs from 'fs';
 import { execSync } from 'node:child_process';
@@ -16,6 +17,7 @@ const TARGET_MAPPING = {
   'macos-x86_64-apple-darwin-ffi': 'osx-x64',
   'windows-i686-pc-windows-msvc-ffi': 'win-x86',
   'windows-x86_64-pc-windows-msvc-ffi': 'win-x64',
+  'windows-aarch64-pc-windows-msvc-ffi': 'win-arm64',
   'centos7-aarch64-unknown-linux-gnu-ffi': 'linux-arm64',
   'centos7-x86_64-unknown-linux-gnu-ffi': 'linux-x64',
 };
@@ -35,14 +37,15 @@ export async function dotnetPublish(options: PublisherOptions) {
   ensureEmptyDir(DOTNET_DIR);
   Log.stepEnd(`Cleared ${DOTNET_DIR}`);
 
-  moveDotnetLibraries(libFiles);
-  await publishDotnetPackages(options);
+  const movedRuntimes = moveDotnetLibraries(libFiles);
+  await publishDotnetPackages(options, movedRuntimes);
 }
 
-function moveDotnetLibraries(libFiles: string[]) {
+function moveDotnetLibraries(libFiles: string[]): Set<string> {
   Log.stepBegin('Moving Dotnet Native Libraries');
 
   const destKeys = Object.keys(TARGET_MAPPING);
+  const movedRuntimes = new Set<string>();
 
   let allFilesMoved = true;
   libFiles.forEach((file) => {
@@ -62,6 +65,7 @@ function moveDotnetLibraries(libFiles: string[]) {
 
     const destinationPath = path.resolve(destDir, filename);
     execSync(`cp ${file} ${destinationPath}`);
+    movedRuntimes.add(destination);
 
     Log.stepProgress(`Copied lib to ${destinationPath}`);
   });
@@ -71,12 +75,19 @@ function moveDotnetLibraries(libFiles: string[]) {
     throw new Error('Failed to move all files');
   }
 
-  if (destKeys.length > 0) {
-    Log.stepEnd(`Unused mappings: \n - ${destKeys.join('\n - ')}`, 'failure');
+  const skippedKeys = destKeys.filter(isOptionalTarget);
+  if (skippedKeys.length > 0) {
+    Log.stepProgress(`Optional targets not built: ${skippedKeys.join(', ')}`);
+  }
+
+  const unusedKeys = destKeys.filter((key) => !isOptionalTarget(key));
+  if (unusedKeys.length > 0) {
+    Log.stepEnd(`Unused mappings: \n - ${unusedKeys.join('\n - ')}`, 'failure');
     throw new Error('Failed to move all files');
   }
 
   Log.stepEnd('Successfully moved Dotnet Native Libraries');
+  return movedRuntimes;
 }
 
 function getDestination(file: string, destKeys: string[]): string | null {
@@ -95,10 +106,15 @@ function isMappedTarget(file: string): boolean {
   return Object.keys(TARGET_MAPPING).some((target) => file.includes(target));
 }
 
-async function publishDotnetPackages(options: PublisherOptions) {
+async function publishDotnetPackages(
+  options: PublisherOptions,
+  movedRuntimes: Set<string>,
+) {
   Log.stepBegin('Publishing Dotnet Packages');
 
   ensureEmptyDir(NUPKG_DIR);
+
+  const includeWinArm64 = movedRuntimes.has('win-arm64');
 
   const nativeProjs = [
     'src/Native/Statsig.NativeAssets.linux-x64.csproj',
@@ -107,6 +123,9 @@ async function publishDotnetPackages(options: PublisherOptions) {
     'src/Native/Statsig.NativeAssets.win-x64.csproj',
     'src/Native/Statsig.NativeAssets.win-x86.csproj',
     'src/Native/Statsig.NativeAssets.linux-arm64.csproj',
+    ...(includeWinArm64
+      ? ['src/Native/Statsig.NativeAssets.win-arm64.csproj']
+      : []),
     // Add more native projects as needed
   ];
 
@@ -136,7 +155,10 @@ async function publishDotnetPackages(options: PublisherOptions) {
     throw new Error('Timeout waiting for native packages to be indexed');
   }
 
-  packProject('src/Statsig/Statsig.csproj');
+  packProject(
+    'src/Statsig/Statsig.csproj',
+    includeWinArm64 ? '-p:IncludeWinArm64NativeAssets=true' : '',
+  );
   Log.stepProgress(
     'Packed statsig(main) project, starting to push main packages',
   );
@@ -172,10 +194,10 @@ function pushNupkg(fileName: string) {
   });
 }
 
-function packProject(projectPath: string) {
+function packProject(projectPath: string, extraArgs = '') {
   Log.stepBegin(`Packing Dotnet Project: ${projectPath}`);
 
-  const command = `dotnet pack ${projectPath} -c Release -o ${NUPKG_DIR}`;
+  const command = `dotnet pack ${projectPath} -c Release -o ${NUPKG_DIR} ${extraArgs}`.trim();
   
   Log.stepProgress(`Running command: ${command}`);
 

@@ -23,6 +23,10 @@
     <PackageReference Include="Statsig.NativeAssets.win-x64"    Version="$(StatsigVersion)" />
     <PackageReference Include="Statsig.NativeAssets.win-x86"    Version="$(StatsigVersion)" />
   </ItemGroup>
+  <!-- Set by the publisher only when a Windows ARM64 binary was built (see .github/build_plan.py) -->
+  <ItemGroup Condition="'$(UseLocalProjects)' != 'true' And '$(IncludeWinArm64NativeAssets)' == 'true'">
+    <PackageReference Include="Statsig.NativeAssets.win-arm64"  Version="$(StatsigVersion)" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
